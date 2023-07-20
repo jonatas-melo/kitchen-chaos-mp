@@ -24,9 +24,9 @@ public class KitchenGameManager : MonoBehaviour {
 
 
     private State state;
-    private float countdownToStartTimer = 3f;
+    private float countdownToStartTimer = 1f; // FIXME - Go back to 3s
     private float gamePlayingTimer;
-    private float gamePlayingTimerMax = 90f;
+    private float gamePlayingTimerMax = 300f; // FIXME - Go back to 90s
     private bool isGamePaused = false;
 
 
@@ -39,6 +39,10 @@ public class KitchenGameManager : MonoBehaviour {
     private void Start() {
         GameInput.Instance.OnPauseAction += GameInput_OnPauseAction;
         GameInput.Instance.OnInteractAction += GameInput_OnInteractAction;
+        
+        // FIXME - Remove - Auto start the game
+        state = State.CountdownToStart;
+        OnStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private void GameInput_OnInteractAction(object sender, EventArgs e) {
