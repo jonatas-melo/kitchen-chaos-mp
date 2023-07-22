@@ -91,6 +91,7 @@ public class CuttingCounter : BaseCounter, IHasProgress
         {
             // There is a KitchenObject here AND it can be cut
             CutKitchenObjectServerRpc();
+            TestFinishedCuttingServerRpc();
         }
     }
 
@@ -98,7 +99,6 @@ public class CuttingCounter : BaseCounter, IHasProgress
     private void CutKitchenObjectServerRpc()
     {
         CutKitchenObjectClientRpc();
-        TestFinishedCuttingServerRpc();
     }
 
     [ClientRpc]
