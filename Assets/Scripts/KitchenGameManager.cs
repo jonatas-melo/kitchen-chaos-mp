@@ -1,21 +1,24 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Unity.Netcode;
 using UnityEngine;
 
-public class KitchenGameManager : MonoBehaviour {
-
-
+public class KitchenGameManager : NetworkBehaviour
+{
     public static KitchenGameManager Instance { get; private set; }
 
 
-
     public event EventHandler OnStateChanged;
-    public event EventHandler OnGamePaused;
-    public event EventHandler OnGameUnpaused;
+    public event EventHandler OnLocalGamePaused;
+    public event EventHandler OnLocalGameUnpaused;
+    public event EventHandler OnLocalPlayerReadyChanged;
+    public event EventHandler OnMultiplayerGamePaused;
+    public event EventHandler OnMultiplayerGameUnpaused;
 
 
-    private enum State {
+    private enum State
+    {
         WaitingToStart,
         CountdownToStart,
         GamePlaying,
@@ -23,94 +26,184 @@ public class KitchenGameManager : MonoBehaviour {
     }
 
 
-    private State state;
-    private float countdownToStartTimer = 1f; // FIXME - Go back to 3s
-    private float gamePlayingTimer;
-    private float gamePlayingTimerMax = 300f; // FIXME - Go back to 90s
-    private bool isGamePaused = false;
+    private NetworkVariable<State> state = new(State.WaitingToStart);
+    private bool isLocalPlayerReady;
+    private NetworkVariable<float> countdownToStartTimer = new(3f);
+    private NetworkVariable<float> gamePlayingTimer = new();
+    private float gamePlayingTimerMax = 10f; // FIXME - Go back to 90s
+    private bool isLocalGamePaused;
+    private NetworkVariable<bool> isGamePaused = new();
+    private Dictionary<ulong, bool> playerReadyDictionary;
+    private Dictionary<ulong, bool> playerPausedDictionary;
 
 
-    private void Awake() {
+    private void Awake()
+    {
         Instance = this;
-
-        state = State.WaitingToStart;
+        playerReadyDictionary = new Dictionary<ulong, bool>();
+        playerPausedDictionary = new Dictionary<ulong, bool>();
     }
 
-    private void Start() {
+    private void Start()
+    {
         GameInput.Instance.OnPauseAction += GameInput_OnPauseAction;
         GameInput.Instance.OnInteractAction += GameInput_OnInteractAction;
-        
-        // FIXME - Remove - Auto start the game
-        state = State.CountdownToStart;
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        state.OnValueChanged += StateValueChanged;
+        isGamePaused.OnValueChanged += IsGamePausedValueChanged;
+    }
+
+    private void IsGamePausedValueChanged(bool previousValue, bool newValue)
+    {
+        if (isGamePaused.Value)
+        {
+            Time.timeScale = 0f;
+            OnMultiplayerGamePaused?.Invoke(this, EventArgs.Empty);
+            return;
+        }
+
+        Time.timeScale = 1f;
+        OnMultiplayerGameUnpaused?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void StateValueChanged(State previousState, State newState)
+    {
         OnStateChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private void GameInput_OnInteractAction(object sender, EventArgs e) {
-        if (state == State.WaitingToStart) {
-            state = State.CountdownToStart;
-            OnStateChanged?.Invoke(this, EventArgs.Empty);
+    private void GameInput_OnInteractAction(object sender, EventArgs e)
+    {
+        if (state.Value != State.WaitingToStart) return;
+
+        isLocalPlayerReady = true;
+        OnLocalPlayerReadyChanged?.Invoke(this, EventArgs.Empty);
+        SetPlayerReadyServerRpc();
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void SetPlayerReadyServerRpc(ServerRpcParams serverRpcParams = default)
+    {
+        playerReadyDictionary[serverRpcParams.Receive.SenderClientId] = true;
+        var allClientsReady = true;
+        foreach (var clientId in NetworkManager.Singleton.ConnectedClientsIds)
+        {
+            if (playerReadyDictionary.ContainsKey(clientId) && playerReadyDictionary[clientId]) continue;
+            allClientsReady = false;
+            break;
+        }
+
+        if (allClientsReady)
+        {
+            state.Value = State.CountdownToStart;
         }
     }
 
-    private void GameInput_OnPauseAction(object sender, EventArgs e) {
+    private void GameInput_OnPauseAction(object sender, EventArgs e)
+    {
         TogglePauseGame();
     }
 
-    private void Update() {
-        switch (state) {
+    private void Update()
+    {
+        if (!IsServer) return;
+
+        switch (state.Value)
+        {
             case State.WaitingToStart:
                 break;
             case State.CountdownToStart:
-                countdownToStartTimer -= Time.deltaTime;
-                if (countdownToStartTimer < 0f) {
-                    state = State.GamePlaying;
-                    gamePlayingTimer = gamePlayingTimerMax;
-                    OnStateChanged?.Invoke(this, EventArgs.Empty);
+                countdownToStartTimer.Value -= Time.deltaTime;
+                if (countdownToStartTimer.Value < 0f)
+                {
+                    state.Value = State.GamePlaying;
+                    gamePlayingTimer.Value = gamePlayingTimerMax;
                 }
+
                 break;
             case State.GamePlaying:
-                gamePlayingTimer -= Time.deltaTime;
-                if (gamePlayingTimer < 0f) {
-                    state = State.GameOver;
-                    OnStateChanged?.Invoke(this, EventArgs.Empty);
+                gamePlayingTimer.Value -= Time.deltaTime;
+                if (gamePlayingTimer.Value < 0f)
+                {
+                    state.Value = State.GameOver;
                 }
+
                 break;
             case State.GameOver:
                 break;
         }
     }
 
-    public bool IsGamePlaying() {
-        return state == State.GamePlaying;
+    public bool IsGamePlaying()
+    {
+        return state.Value == State.GamePlaying;
     }
 
-    public bool IsCountdownToStartActive() {
-        return state == State.CountdownToStart;
+    public bool IsCountdownToStartActive()
+    {
+        return state.Value == State.CountdownToStart;
     }
 
-    public float GetCountdownToStartTimer() {
-        return countdownToStartTimer;
+    public float GetCountdownToStartTimer()
+    {
+        return countdownToStartTimer.Value;
     }
 
-    public bool IsGameOver() {
-        return state == State.GameOver;
+    public bool IsGameOver()
+    {
+        return state.Value == State.GameOver;
     }
 
-    public float GetGamePlayingTimerNormalized() {
-        return 1 - (gamePlayingTimer / gamePlayingTimerMax);
+    public bool IsLocalPlayerReady()
+    {
+        return isLocalPlayerReady;
     }
 
-    public void TogglePauseGame() {
-        isGamePaused = !isGamePaused;
-        if (isGamePaused) {
-            Time.timeScale = 0f;
+    public float GetGamePlayingTimerNormalized()
+    {
+        return 1 - (gamePlayingTimer.Value / gamePlayingTimerMax);
+    }
 
-            OnGamePaused?.Invoke(this, EventArgs.Empty);
-        } else {
-            Time.timeScale = 1f;
-
-            OnGameUnpaused?.Invoke(this, EventArgs.Empty);
+    public void TogglePauseGame()
+    {
+        isLocalGamePaused = !isLocalGamePaused;
+        if (isLocalGamePaused)
+        {
+            PauseGameServerRpc();
+            OnLocalGamePaused?.Invoke(this, EventArgs.Empty);
+        }
+        else
+        {
+            UnpauseGameServerRpc();
+            OnLocalGameUnpaused?.Invoke(this, EventArgs.Empty);
         }
     }
 
+    [ServerRpc(RequireOwnership = false)]
+    private void PauseGameServerRpc(ServerRpcParams serverRpcParams = default)
+    {
+        playerPausedDictionary[serverRpcParams.Receive.SenderClientId] = true;
+        TestGamePausedState();
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void UnpauseGameServerRpc(ServerRpcParams serverRpcParams = default)
+    {
+        playerPausedDictionary[serverRpcParams.Receive.SenderClientId] = false;
+        TestGamePausedState();
+    }
+
+    private void TestGamePausedState()
+    {
+        foreach (var clientId in NetworkManager.Singleton.ConnectedClientsIds)
+        {
+            if (!playerPausedDictionary.ContainsKey(clientId) || !playerPausedDictionary[clientId]) continue;
+            isGamePaused.Value = true;
+            return;
+        }
+
+        isGamePaused.Value = false;
+    }
 }
