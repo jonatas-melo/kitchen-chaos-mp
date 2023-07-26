@@ -7,7 +7,6 @@ public class ConnectingUI : MonoBehaviour
 {
     private void Start()
     {
-        Debug.Log("ConnectingUI Start");
         KitchenObjectMultiplayer.Instance.OnTryingToJoinGame += GameMultiplayerTryingToJoinGame;
         KitchenObjectMultiplayer.Instance.OnFailedToJoinGame += GameMultiplayerOnFailedToJoinGame;
         Hide();

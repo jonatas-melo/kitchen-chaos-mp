@@ -13,13 +13,11 @@ public class ConnectionResponseMessageUI : MonoBehaviour
 
     private void Awake()
     {
-        Debug.Log("ConnectionResponseMessageUI Awake");
         closeButton.onClick.AddListener(Hide);
     }
 
     private void Start()
     {
-        Debug.Log("ConnectionResponseMessageUI Start");
         KitchenObjectMultiplayer.Instance.OnFailedToJoinGame += GameMultiplayerOnFailedToJoinGame;
         Hide();
     }
