@@ -7,7 +7,7 @@ using UnityEngine.SceneManagement;
 
 public class KitchenObjectMultiplayer : NetworkBehaviour
 {
-    private const int MaxPlayerAmount = 4;
+    public const int MaxPlayerAmount = 4;
 
     public static KitchenObjectMultiplayer Instance { get; private set; }
 
