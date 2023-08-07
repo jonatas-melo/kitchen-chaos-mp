@@ -4,10 +4,12 @@ using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using Random = UnityEngine.Random;
 
 public class KitchenObjectMultiplayer : NetworkBehaviour
 {
     public const int MaxPlayerAmount = 4;
+    private const string PlayerPrefsPlayerNameMultiplayer = "PlayerPrefsPlayerNameMultiplayer";
 
     public static KitchenObjectMultiplayer Instance { get; private set; }
 
@@ -19,13 +21,27 @@ public class KitchenObjectMultiplayer : NetworkBehaviour
     [SerializeField] private List<Color> playerColorList;
 
     private NetworkList<PlayerData> playerDataNetworkList;
+    private string playerName;
 
     private void Awake()
     {
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        playerName = PlayerPrefs.GetString(PlayerPrefsPlayerNameMultiplayer, "PlayerName" + Random.Range(100, 1000));
         playerDataNetworkList = new NetworkList<PlayerData>();
         playerDataNetworkList.OnListChanged += PlayerDataNetworkListOnListChanged;
+    }
+
+    public string GetPlayerName()
+    {
+        return playerName;
+    }
+
+    public void SetPlayerName(string newPlayerName)
+    {
+        playerName = newPlayerName;
+        PlayerPrefs.SetString(PlayerPrefsPlayerNameMultiplayer, playerName);
     }
 
     private void PlayerDataNetworkListOnListChanged(NetworkListEvent<PlayerData> changeEvent)
@@ -58,6 +74,7 @@ public class KitchenObjectMultiplayer : NetworkBehaviour
             clientId = clientId,
             colorId = GetFirstAvailableColorId(),
         });
+        SetPlayerNameServerRpc(GetPlayerName());
     }
 
     private void NetworkManagerConnectionApprovalCallback(
@@ -86,7 +103,22 @@ public class KitchenObjectMultiplayer : NetworkBehaviour
         OnTryingToJoinGame?.Invoke(this, EventArgs.Empty);
 
         NetworkManager.Singleton.OnClientDisconnectCallback += NetworkManagerClientOnClientDisconnectCallback;
+        NetworkManager.Singleton.OnClientConnectedCallback += NetworkManagerClientOnClientConnectedCallback;
         NetworkManager.Singleton.StartClient();
+    }
+
+    private void NetworkManagerClientOnClientConnectedCallback(ulong clientId)
+    {
+        SetPlayerNameServerRpc(GetPlayerName());
+    }
+
+    [ServerRpc(RequireOwnership = false)]
+    private void SetPlayerNameServerRpc(string newPlayerName, ServerRpcParams serverRpcParams = default)
+    {
+        var playerIndex = GetPlayerIndexFromClientId(serverRpcParams.Receive.SenderClientId);
+        var playerData = playerDataNetworkList[playerIndex];
+        playerData.playerName = newPlayerName;
+        playerDataNetworkList[playerIndex] = playerData;
     }
 
     private void NetworkManagerClientOnClientDisconnectCallback(ulong obj)
